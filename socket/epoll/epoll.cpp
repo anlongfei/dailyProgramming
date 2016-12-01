@@ -65,7 +65,7 @@ int main( int argc, char* argv[] )
 	int epollfd = epoll_create1(EPOLL_CLOEXEC);
 	struct epoll_event event;
 	event.data.fd = listenfd;
-	event.events = EPOLLIN | EPOLLET;
+	event.events = EPOLLIN ;
 	epoll_ctl(epollfd, EPOLL_CTL_ADD, listenfd, &event);
 
 	eventlist  events(16);
