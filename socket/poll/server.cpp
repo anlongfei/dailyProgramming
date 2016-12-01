@@ -47,13 +47,9 @@ int setnonblocking( int fd )
 
 int main( int argc, char* argv[] )
 {
-    if( argc <= 2 )
-    {
-        printf( "usage: %s ip_address port_number\n", basename( argv[0] ) );
-        return 1;
-    }
-    const char* ip = argv[1];
-    int port = atoi( argv[2] );
+    const char* ip = "127.0.0.1";
+    int port = 5188;
+	int num = 0;
 
     int ret = 0;
     struct sockaddr_in address;
@@ -64,6 +60,11 @@ int main( int argc, char* argv[] )
 
     int listenfd = socket( PF_INET, SOCK_STREAM, 0 );
     assert( listenfd >= 0 );
+
+	//设置端口复用
+	int flag = 1,len = sizeof(int);
+	if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &flag, len) == -1)
+		ERR_EXIT("setsockopt!");
 
     ret = bind( listenfd, ( struct sockaddr* )&address, sizeof( address ) );
     assert( ret != -1 );
@@ -111,7 +112,7 @@ int main( int argc, char* argv[] )
 			pollfds.push_back(pfd);
 			--nready;
 
-			cout << "ip = " << inet_ntoa(peeraddr.sin_addr) << " port= "  << ntohs(peeraddr.sin_port) << endl;
+			cout << "num : " << num++ << "\t ip = " << inet_ntoa(peeraddr.sin_addr) << " port= "  << ntohs(peeraddr.sin_port) << endl;
 
 			if(nready == 0)
 				continue;
