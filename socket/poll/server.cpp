@@ -11,10 +11,24 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <poll.h>
+#include <vector>
+#include <iostream>
+using namespace std;
 
 #define USER_LIMIT 5
 #define BUFFER_SIZE 64
 #define FD_LIMIT 65535
+
+typedef std::vector<struct pollfd> pollfdlist;
+
+#define ERR_EXIT(m) \
+	do	\
+{ \
+	perror(m); \
+	exit(EXIT_FAILURE); \
+} while(0)
+
+
 
 struct client_data
 {
@@ -33,13 +47,9 @@ int setnonblocking( int fd )
 
 int main( int argc, char* argv[] )
 {
-    if( argc <= 2 )
-    {
-        printf( "usage: %s ip_address port_number\n", basename( argv[0] ) );
-        return 1;
-    }
-    const char* ip = argv[1];
-    int port = atoi( argv[2] );
+    const char* ip = "127.0.0.1";
+    int port = 5188;
+	int num = 0;
 
     int ret = 0;
     struct sockaddr_in address;
@@ -51,136 +61,85 @@ int main( int argc, char* argv[] )
     int listenfd = socket( PF_INET, SOCK_STREAM, 0 );
     assert( listenfd >= 0 );
 
+	//设置端口复用
+	int flag = 1,len = sizeof(int);
+	if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &flag, len) == -1)
+		ERR_EXIT("setsockopt!");
+
     ret = bind( listenfd, ( struct sockaddr* )&address, sizeof( address ) );
     assert( ret != -1 );
 
     ret = listen( listenfd, 5 );
     assert( ret != -1 );
 
-    struct client_data* users = new client_data[FD_LIMIT];
-    pollfd fds[USER_LIMIT+1];
-    int user_counter = 0;
-    for( int i = 1; i <= USER_LIMIT; ++i )
-    {
-        fds[i].fd = -1;
-        fds[i].events = 0;
-    }
-    fds[0].fd = listenfd;
-    fds[0].events = POLLIN | POLLERR;
-    fds[0].revents = 0;
+	struct pollfd pfd;
+	pfd.fd = listenfd;
+	pfd.events = POLLIN;
 
-    while( 1 )
-    {
-        ret = poll( fds, user_counter+1, -1 );
-		printf("after poll\n");
-		sleep(1);
-        if ( ret < 0 )
-        {
-            printf( "poll failure\n" );
-            break;
-        }
+	pollfdlist pollfds;
+	pollfds.push_back(pfd);
 
-        for( int i = 0; i < user_counter+1; ++i )
-        {
-            if( ( fds[i].fd == listenfd ) && ( fds[i].revents & POLLIN ) )
-            {
-                struct sockaddr_in client_address;
-                socklen_t client_addrlength = sizeof( client_address );
-                int connfd = accept( listenfd, ( struct sockaddr* )&client_address, &client_addrlength );
-                if ( connfd < 0 )
-                {
-                    printf( "errno is: %d\n", errno );
-                    continue;
-                }
-                if( user_counter >= USER_LIMIT )
-                {
-                    const char* info = "too many users\n";
-                    printf( "%s", info );
-                    send( connfd, info, strlen( info ), 0 );
-                    close( connfd );
-                    continue;
-                }
-                user_counter++;
-                users[connfd].address = client_address;
-                setnonblocking( connfd );
-                fds[user_counter].fd = connfd;
-                fds[user_counter].events = POLLIN | POLLRDHUP | POLLERR;
-                fds[user_counter].revents = 0;
-                printf( "comes a new user, now have %d users\n", user_counter );
-            }
-            else if( fds[i].revents & POLLERR )
-            {
-                printf( "get an error from %d\n", fds[i].fd );
-                char errors[ 100 ];
-                memset( errors, '\0', 100 );
-                socklen_t length = sizeof( errors );
-                if( getsockopt( fds[i].fd, SOL_SOCKET, SO_ERROR, &errors, &length ) < 0 )
-                {
-                    printf( "get socket option failed\n" );
-                }
-                continue;
-            }
-            else if( fds[i].revents & POLLRDHUP )
-            {
-                users[fds[i].fd] = users[fds[user_counter].fd];
-                close( fds[i].fd );
-                fds[i] = fds[user_counter];
-                i--;
-                user_counter--;
-                printf( "a client left\n" );
-            }
-            else if( fds[i].revents & POLLIN )
-            {
-                int connfd = fds[i].fd;
-                memset( users[connfd].buf, '\0', BUFFER_SIZE );
-                ret = recv( connfd, users[connfd].buf, BUFFER_SIZE-1, 0 );
-                printf( "get %d bytes of client data %s from %d\n", ret, users[connfd].buf, connfd );
-                if( ret < 0 )
-                {
-                    if( errno != EAGAIN )
-                    {
-                        close( connfd );
-                        users[fds[i].fd] = users[fds[user_counter].fd];
-                        fds[i] = fds[user_counter];
-                        i--;
-                        user_counter--;
-                    }
-                }
-                else if( ret == 0 )
-                {
-                    printf( "code should not come to here\n" );
-                }
-                else
-                {
-                    for( int j = 1; j <= user_counter; ++j )
-                    {
-                        if( fds[j].fd == connfd )
-                        {
-                            continue;
-                        }
+	int nready;
 
-                        fds[j].events |= ~POLLIN;
-                        fds[j].events |= POLLOUT;
-                        users[fds[j].fd].write_buf = users[connfd].buf;
-                    }
-                }
-            }
-            else if( fds[i].revents & POLLOUT )
-            {
-                int connfd = fds[i].fd;
-                if( ! users[connfd].write_buf )
-                {
-                    continue;
-                }
-                ret = send( connfd, users[connfd].write_buf, strlen( users[connfd].write_buf ), 0 );
-                users[connfd].write_buf = NULL;
-                fds[i].events |= ~POLLOUT;
-                fds[i].events |= POLLIN;
-            }
-        }
-    }
+	struct sockaddr_in peeraddr;
+	socklen_t peerlen;
+	int connfd;
 
-    delete [] users;
-    close( listenfd );
-    return 0;
+
+	while( 1 )
+	{
+		nready = poll( &*pollfds.begin(), pollfds.size(), -1 );
+		if ( nready == -1 )
+		{
+			if(errno == EINTR)
+				continue;
+			printf( "poll failure\n" );
+			break;
+		}
+
+		if(nready == 0)
+			continue;
+		if(pollfds[0].revents & POLLIN){
+			peerlen = sizeof(peeraddr);
+			connfd = accept(listenfd,(struct sockaddr *) &peeraddr, &peerlen);
+
+			if(connfd == -1)
+				ERR_EXIT("accept");
+
+			pfd.fd = connfd;
+			pfd.events = POLLIN;
+			pfd.revents = 0;
+			pollfds.push_back(pfd);
+			--nready;
+
+			cout << "num : " << num++ << "\t ip = " << inet_ntoa(peeraddr.sin_addr) << " port= "  << ntohs(peeraddr.sin_port) << endl;
+
+			if(nready == 0)
+				continue;
+		}
+		for(pollfdlist::iterator it = pollfds.begin()+1; it != pollfds.end() && nready > 0; it++){
+			if(it->revents & POLLIN){
+				--nready;
+				connfd = it->fd;
+				char buf[1024] = {0};
+				int ret = read(connfd, buf, 1024);
+				if(ret == -1)
+					ERR_EXIT("read!");
+				if(ret == 0){
+					cout << "client closed" << endl;
+					it = pollfds.erase(it);
+					--it;
+
+					close(connfd);
+					continue;
+				}
+
+				cout << buf;
+				write(connfd, buf, strlen(buf));
+			}
+		}
+	}
+
+	close( listenfd );
+	return 0;
 }

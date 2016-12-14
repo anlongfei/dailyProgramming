@@ -1,0 +1,5 @@
+epoll.cpp: In function ‘int main(int, char**)’:
+epoll.cpp:116:19: error: no match for ‘operator[]’ (operand types are ‘epoll_event’ and ‘int’)
+      event = event[i];
+                   ^
+make: *** [epoll] Error 1
