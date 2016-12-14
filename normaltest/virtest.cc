@@ -16,10 +16,18 @@ struct A{
 	void foo(){
 	}
 };
+struct B{
+	int b;
+};
+class C{
+	int b;
+};
 int main(){
-	cout << sizeof(base) << endl;
-	cout << sizeof(ch)   << endl;
-	cout << sizeof(zore)   << endl;
-	cout << sizeof(struct A)   << endl;
+	cout << sizeof(base)		<< endl;			//8
+	cout << sizeof(ch)			<< endl;			//16
+	cout << sizeof(zore)		<< endl;			//1
+	cout << sizeof(struct A)	<< endl;     //4
+	cout << sizeof(struct B)	<< endl;     //4
+	cout << sizeof(C)			<< endl;     //4
 	return 0;
 }
